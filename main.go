@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
+	"github.com/toxyl/flo"
 	"github.com/toxyl/glog"
 )
 
@@ -49,13 +50,9 @@ func instanceDir(port int) string {
 	return fmt.Sprintf("/var/lib/tor/instance%d", port)
 }
 
-const baseDir = "/var/lib/tor/"
-
 func createTorConfig(port int) {
-	controlPort := port + 1
 	dataDir := instanceDir(port)
-	configContent := fmt.Sprintf(`SocksPort %d
-# ControlPort %d
+	configContent := fmt.Sprintf(`SocksPort 0.0.0.0:%d
 DataDirectory %s
 Log notice file /var/log/tor/notices.log
 NumCPUs 1
@@ -78,14 +75,11 @@ NumHelperNodes 3
 MaxCircuitDirtiness 600
 UseEntryGuards 1
 UseBridges 0
-`, port, controlPort, dataDir)
-	configFile := configPath(port)
-	os.WriteFile(configFile, []byte(configContent), 0644)
+`, port, dataDir)
+	flo.File(configPath(port)).WriteString(configContent).Perm(0644)
 }
 
 func createSystemdService(port int) {
-	serviceFile := servicePath(port)
-	configFile := configPath(port)
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=Tor instance on port %d
 After=network.target
@@ -100,8 +94,8 @@ LimitNOFILE=8192
 
 [Install]
 WantedBy=multi-user.target
-`, port, configFile)
-	os.WriteFile(serviceFile, []byte(serviceContent), 0644)
+`, port, configPath(port))
+	flo.File(servicePath(port)).WriteString(serviceContent).Perm(0644)
 	systemctl("daemon-reload", 0)
 	systemctl("enable", port)
 }
@@ -120,22 +114,20 @@ func stopInstance(port int) {
 
 func findAllInstances() []int {
 	res := []int{}
-	instanceDir := filepath.Join(baseDir, "instances")
-	files, err := os.ReadDir(instanceDir)
-	if err != nil {
-		log.ErrorAuto("Error reading instance directory: %s", err)
-		return res
-	}
-
-	for _, file := range files {
-		if file.IsDir() {
-			port, err := strconv.Atoi(file.Name())
-			if err != nil {
-				continue
+	d := flo.Dir("/var/lib/tor/")
+	d.Each(func(f *flo.FileObj) {
+		if strings.HasPrefix(f.Name(), "torrc-") {
+			name := strings.TrimPrefix(f.Name(), "torrc-")
+			p, err := strconv.Atoi(name)
+			if p > 0 {
+				res = append(res, p)
 			}
-			res = append(res, port)
+			if err != nil {
+				log.ErrorAuto("couldn't parse %s: %s", f.Name(), err)
+			}
 		}
-	}
+	}, nil)
+
 	return res
 }
 
@@ -165,9 +157,7 @@ func removeConfig(port int) {
 	systemctl("disable", port)
 	os.Remove(servicePath(port))
 	systemctl("daemon-reload", port)
-
-	instanceDir := filepath.Join(baseDir, "instances", strconv.Itoa(port))
-	os.RemoveAll(instanceDir)
+	os.RemoveAll(instanceDir(port))
 	log.InfoAuto("Configuration for instance %s removed.", port)
 }
 
