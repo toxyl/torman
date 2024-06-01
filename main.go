@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	loadblancer "torman/loadbalancer"
 
 	"github.com/toxyl/flo"
 	"github.com/toxyl/glog"
@@ -52,7 +53,7 @@ func instanceDir(port int) string {
 
 func createTorConfig(port int) {
 	dataDir := instanceDir(port)
-	configContent := fmt.Sprintf(`SocksPort 0.0.0.0:%d
+	configContent := fmt.Sprintf(`SocksPort %d
 DataDirectory %s
 Log notice file /var/log/tor/notices.log
 NumCPUs 1
@@ -139,10 +140,6 @@ func start(basePort int) {
 		startInstance(basePort + i)
 	}
 	log.OKAuto("All Tor instances started.")
-
-	lastPort := basePort + numCores - 1
-	log.InfoAuto("Remember to open the ports: ufw allow from %s to any port %s:%s proto tcp", "192.168.1.100", basePort, lastPort)
-	log.BlankAuto("Replace %s with the actual IP you want to whitelist.", "192.168.1.100")
 }
 
 func stop() {
@@ -162,7 +159,7 @@ func removeConfig(port int) {
 }
 
 func help() {
-	log.BlankAuto("Usage: torman start <base port>")
+	log.BlankAuto("Usage: torman start [base port] [public port]")
 	log.BlankAuto("       torman stop")
 	os.Exit(0)
 }
@@ -175,11 +172,21 @@ func main() {
 	command := os.Args[1]
 	switch command {
 	case "start":
-		if len(os.Args) < 3 {
+		if len(os.Args) < 4 {
 			help()
 		}
 		basePort, _ := strconv.Atoi(os.Args[2])
+		publicPort := os.Args[3]
 		start(basePort)
+		ports := findAllInstances()
+		addrs := []string{}
+		for _, port := range ports {
+			addrs = append(addrs, fmt.Sprintf("127.0.0.1:%d", port))
+		}
+		log.BlankAuto("Starting loadbalancer on 0.0.0.0:%s...", publicPort)
+		log.InfoAuto("Remember to open the port: ufw allow from %s to any port %s proto tcp", "192.168.1.100", publicPort)
+		log.BlankAuto("Replace %s with the actual IP you want to whitelist.", "192.168.1.100")
+		loadblancer.Start("0.0.0.0:"+publicPort, addrs...)
 	case "stop":
 		stop()
 	default:
