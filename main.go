@@ -135,7 +135,7 @@ func findAllInstances() []int {
 func start(basePort int) {
 	stop() // just in case there are still active instances
 
-	numCores := runtime.NumCPU()
+	numCores := runtime.NumCPU() - 1 // we leave one for the loadbalancer
 	for i := 0; i < numCores; i++ {
 		startInstance(basePort + i)
 	}

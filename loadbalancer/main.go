@@ -7,13 +7,13 @@ import (
 )
 
 var (
-	torInstances = []string{}
-	torMutex     sync.Mutex
-	currentTor   int
+	all     = []string{}
+	mu      sync.Mutex
+	current int
 )
 
 func Start(addr string, instances ...string) error {
-	torInstances = instances
+	all = instances
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -29,23 +29,23 @@ func Start(addr string, instances ...string) error {
 	}
 }
 
-func handleConnection(clientConn net.Conn) {
-	defer clientConn.Close()
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
 
-	torMutex.Lock()
-	torAddr := torInstances[currentTor]
-	currentTor = (currentTor + 1) % len(torInstances)
-	torMutex.Unlock()
+	mu.Lock()
+	addr := all[current]
+	current = (current + 1) % len(all)
+	mu.Unlock()
 
-	torConn, err := net.Dial("tcp", torAddr)
+	torConn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return
 	}
 	defer torConn.Close()
 
 	go func() {
-		_, _ = io.Copy(torConn, clientConn)
+		_, _ = io.Copy(torConn, conn)
 	}()
 
-	_, _ = io.Copy(clientConn, torConn)
+	_, _ = io.Copy(conn, torConn)
 }
